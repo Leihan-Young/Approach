@@ -4,14 +4,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 tokenizer = AutoTokenizer.from_pretrained("/workspace/codegen-6B-multi")
 model = AutoModelForCausalLM.from_pretrained("/workspace/codegen-6B-multi")
-fix_prompt = f"// The old version of the production code\n\
-    $FOCAL_SRC$\n\
-    //The old version of the test code that tests the old version of the production code\
-    $TEST_SRC$
-    // The updated version of the production code\n\
-    $FOCAL_TGT$\n\
-    // The updated version of the test code that fixes the potential errors in the old version of the test code\n\
-    "
+fix_prompt = f"// The old version of the production code\n$FOCAL_SRC$\n//The old version of the test code that tests the old version of the production code\n$TEST_SRC$// The updated version of the production code\n$FOCAL_TGT$\n// The updated version of the test code that fixes the potential errors in the old version of the test code\n"
 cov_prompt = ""
 
 if __name__ == "__main__":
