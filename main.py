@@ -13,7 +13,7 @@ if __name__ == "__main__":
     test_src = "    @Test\n    void testDecodeHttp() throws Exception {\n        ByteBuf buf = Unpooled.wrappedBuffer(new byte[] {'G'});\n        ChannelHandlerContext context = Mockito.mock(ChannelHandlerContext.class);\n        ChannelPipeline pipeline = Mockito.mock(ChannelPipeline.class);\n        Mockito.when(context.pipeline()).thenReturn(pipeline);\n        QosProcessHandler handler = new QosProcessHandler(FrameworkModel.defaultModel(), \"welcome\", false);\n        handler.decode(context, buf, Collections.emptyList());\n        verify(pipeline).addLast(any(HttpServerCodec.class));\n        verify(pipeline).addLast(any(HttpObjectAggregator.class));\n        verify(pipeline).addLast(any(HttpProcessHandler.class));\n        verify(pipeline).remove(handler);\n    }\n"
     fix_input_text = fix_prompt.replace('$FOCAL_SRC$', focal_src).replace('$FOCAL_TGT$', focal_tgt).replace('$TEST_SRC$', test_src)
     input_ids = tokenizer(fix_input_text, return_tensors='pt').input_ids
-    generated_ids = model.generate(input_ids, max_length=1024)
+    generated_ids = model.generate(input_ids, max_length=300)
     test_fix = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
     with open('./try.java', 'w', encoding='utf-8') as f:
         f.write(test_fix)
