@@ -5,8 +5,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-tokenizer = AutoTokenizer.from_pretrained("/workspace/codegen-6B-multi")
-model = AutoModelForCausalLM.from_pretrained("/workspace/codegen-6B-multi", device_map="auto")
+tokenizer = AutoTokenizer.from_pretrained("/workspace/codegen2-7B_P")
+model = AutoModelForCausalLM.from_pretrained("/workspace/codegen2-7B_P", device_map="auto")
 
 FOCAL_SRC = "$FOCAL_SRC$"
 FOCAL_TGT = "$FOCAL_TGT$"
