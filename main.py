@@ -152,9 +152,11 @@ def align_code(code):
     code_lines = code.split('\n')
     move = len(code_lines[0]) - len(code_lines[0].lstrip())
     for i in range(len(code_lines)):
+        if len(code_lines[i].lstrip().rstrip()) == 0:
+            continue
         if move > len(code_lines[i]) - len(code_lines[i].lstrip()):
             move = len(code_lines[i]) - len(code_lines[i].lstrip())
-    aligned_code = [l[move:] for l in code_lines]
+    aligned_code = [l[move:] if len(l.lstrip().rstrip()) != 0 else l for l in code_lines]
     return '\n'.join(aligned_code)
 
 def main(focal_src, focal_tgt, test_src):
