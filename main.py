@@ -139,7 +139,7 @@ def fix_test_src(focal_src, focal_tgt, test_src):
 def enhance_test_src(focal_src, focal_tgt, test_src):
     test_prefix, test_suffix = split_test(test_src)
     input_text = enhance_prompt.replace(FOCAL_SRC, focal_src).replace(FOCAL_TGT, focal_tgt).replace(TEST_PREFIX, test_prefix)
-    input_text = format(test_prefix, test_suffix)
+    input_text = format(input_text, test_suffix)
     input_ids = tokenizer(input_text, return_tensors='pt').input_ids.to(device)
     generated_ids = model.generate(input_ids, max_new_tokens=256)
     print(f"input_text={input_text}")
