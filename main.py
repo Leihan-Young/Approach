@@ -13,7 +13,7 @@ FOCAL_TGT = "$FOCAL_TGT$"
 TEST_SRC = "$TEST_SRC$"
 TEST_PREFIX = "$TEST_PREFIX$"
 
-fix_prompt = """// The old version of the production code
+fix_prompt = f"""// The old version of the production code
 {FOCAL_SRC}
 // The old version of the test code that tests the old version of the production code
 {TEST_SRC}
