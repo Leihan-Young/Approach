@@ -104,6 +104,11 @@ def post_process(prefix, test, suffix):
             break
     if test_lines[end].find('/*') != -1 and test_lines[end][:test_lines[end].find('/*')].find('"') == -1 and test_lines[end][:test_lines[end].find('/*')].find('}') == -1:
         test_lines[end] = test_lines[end][:test_lines[end].find('}') + 1]
+    if test_lines[end].endswith('\n'):
+        test_lines[end] = test_lines[end][:-1]
+    while count > 0:
+        test_lines[end] += '}'
+    test_lines[end] += '\n'
     end = end + 1
     if end < len(test_lines):
         test_lines = test_lines[:end]
