@@ -102,9 +102,8 @@ def post_process(test, suffix):
     if test_lines[end].find('/*') != -1 and test_lines[end][:test_lines[end].find('/*')].find('"') == -1 and test_lines[end][:test_lines[end].find('/*')].find('}') == -1:
         test_lines[end] = test_lines[end][:test_lines[end].find('}') + 1]
     end = end + 1
-    if end >= len(test_lines):
-        raise Exception("Error:Unexpected error in post_process()")
-    test_lines = test_lines[:end]
+    if end < len(test_lines):
+        test_lines = test_lines[:end]
     if test_lines[-1].lstrip().startswith('}'):
         test_lines[0] = test_lines[-1][:test_lines[-1].find('}')] + test_lines[0]
     post_test = align_test("\n".join(test_lines))
