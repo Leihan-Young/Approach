@@ -12,6 +12,7 @@ FOCAL_SRC = "$FOCAL_SRC$"
 FOCAL_TGT = "$FOCAL_TGT$"
 TEST_SRC = "$TEST_SRC$"
 TEST_PREFIX = "$TEST_PREFIX$"
+TEST_SIGNATURE = "$TEST_SIGNATURE$"
 
 fix_prompt = f"""// The old version of the production code
 {FOCAL_SRC}
@@ -20,6 +21,7 @@ fix_prompt = f"""// The old version of the production code
 // The updated version of the production code
 {FOCAL_TGT}
 // The updated version of the test code that fixes the potential errors in the old version of the test code
+{TEST_SIGNATURE}
 """
 enhance_prompt = f"""
 // The old version of the production code
@@ -28,7 +30,7 @@ enhance_prompt = f"""
 {FOCAL_TGT}
 // The updated version of the test code
 {TEST_PREFIX}
-// To cover the updated part of the production code
+    // To cover the updated part of the production code
 """
 
 def split_test(test):
@@ -109,8 +111,12 @@ def post_process(test, suffix):
     post_test = align_test("\n".join(test_lines))
     return post_test
 
+def extract_test_signature(test):
+    return test[:test.find('{')+1]
+
 def fix_test_src(focal_src, focal_tgt, test_src):
-    input_text = fix_prompt.replace(FOCAL_SRC, focal_src).replace(FOCAL_TGT, focal_tgt).replace(TEST_SRC, test_src)
+    test_signature = extract_test_signature(test_src)
+    input_text = fix_prompt.replace(FOCAL_SRC, focal_src).replace(FOCAL_TGT, focal_tgt).replace(TEST_SRC, test_src).replace(TEST_SIGNATURE, test_signature)
     input_text = format(input_text, '}')
     input_ids = tokenizer(input_text, return_tensors='pt').input_ids.to(device)
     generated_ids = model.generate(input_ids, max_new_tokens=256)
