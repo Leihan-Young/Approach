@@ -58,7 +58,8 @@ def split_test(test):
 def format(prefix, suffix):
   return prefix + "<mask_1>" + suffix + "<|endoftext|>" + "<sep>" + "<mask_1>"
 
-def post_process(test, suffix):
+def post_process(prefix, test, suffix):
+    test = prefix + test
     if test.find('<eom>') == -1:
         test = test.lstrip() + suffix
     else:
@@ -108,11 +109,18 @@ def post_process(test, suffix):
         test_lines = test_lines[:end]
     if test_lines[-1].lstrip().startswith('}'):
         test_lines[0] = test_lines[-1][:test_lines[-1].find('}')] + test_lines[0]
-    post_test = align_test("\n".join(test_lines))
+    post_test = align_code("\n".join(test_lines))
     return post_test
 
 def extract_test_signature(test):
-    return test[:test.find('{')+1]
+    ind = test.find('{')+1
+    signature = test[:ind]
+    if test[ind+1:].lstrip().startswith('\n'):
+        suf = test[ind+1:]
+        signature += suf[:suf.find('\n')+1]
+    else:
+        signature += '\n'
+    return signature
 
 def fix_test_src(focal_src, focal_tgt, test_src):
     test_signature = extract_test_signature(test_src)
@@ -123,7 +131,7 @@ def fix_test_src(focal_src, focal_tgt, test_src):
     print(f"input_text={input_text}")
     test_fix = tokenizer.decode(generated_ids[0], skip_special_tokens=True)[len(input_text):]
     print(f"test_fix_gen={test_fix}")
-    test_fix = post_process(test_fix, '\n}')
+    test_fix = post_process(test_signature, test_fix, '\n}')
     print(f"test_fix={test_fix}")
     return test_fix
 
@@ -136,21 +144,23 @@ def enhance_test_src(focal_src, focal_tgt, test_src):
     print(f"input_text={input_text}")
     test_enhance = tokenizer.decode(generated_ids[0], skip_special_tokens=True)[len(input_text):]
     print(f"test_enhance_gen={test_enhance}")
-    test_enhance = post_process(test_enhance, test_suffix)
+    test_enhance = post_process(test_prefix, test_enhance, test_suffix)
     print(f"test_enhance={test_enhance}")
     return test_enhance
 
-def align_test(test):
-    test_lines = test.split('\n')
-    move = len(test_lines[0]) - len(test_lines[0].lstrip())
-    for i in range(len(test_lines)):
-        if move > len(test_lines[i]) - len(test_lines[i].lstrip()):
-            move = len(test_lines[i]) - len(test_lines[i].lstrip())
-    aligned_test = [l[move:] for l in test_lines]
-    return '\n'.join(aligned_test)
+def align_code(code):
+    code_lines = code.split('\n')
+    move = len(code_lines[0]) - len(code_lines[0].lstrip())
+    for i in range(len(code_lines)):
+        if move > len(code_lines[i]) - len(code_lines[i].lstrip()):
+            move = len(code_lines[i]) - len(code_lines[i].lstrip())
+    aligned_code = [l[move:] for l in code_lines]
+    return '\n'.join(aligned_code)
 
 def main(focal_src, focal_tgt, test_src):
-    test_src = align_test(test_src)
+    focal_src = align_code(focal_src)
+    focal_tgt = align_code(focal_tgt)
+    test_src = align_code(test_src)
     test_fix = fix_test_src(focal_src, focal_tgt, test_src)
     # print(f"""
     #       test_fix=
@@ -166,6 +176,11 @@ def main(focal_src, focal_tgt, test_src):
     return test_enhance
     
 if __name__ == "__main__":
+#     post_process("@Test\n    void testExecute2() throws Exception {\n", """ltCommandExecutor executor = new DefaultCommandExecutor(FrameworkModel.defaultModel());
+#         String result = executor.execute(CommandContextFactory.newInstance("greeting", new String[]{"dubbo"}, false));
+#         assertThat(result, equalTo("greeting dubbo"));
+#     }
+# <eom><|java|>package com.example.android.miwok;""", '\n}')
     focal_src = "    @Override\n    public String execute(CommandContext commandContext) throws NoSuchCommandException {\n        BaseCommand command = null;\n        try {\n            command = frameworkModel.getExtensionLoader(BaseCommand.class).getExtension(commandContext.getCommandName());\n        } catch (Throwable throwable) {\n                //can't find command\n        }\n        if (command == null) {\n            throw new NoSuchCommandException(commandContext.getCommandName());\n        }\n        return command.execute(commandContext, commandContext.getArgs());\n    }\n"
     focal_tgt = "    @Override\n    public String execute(CommandContext commandContext) throws NoSuchCommandException, PermissionDenyException {\n        BaseCommand command = null;\n        try {\n            command = frameworkModel.getExtensionLoader(BaseCommand.class).getExtension(commandContext.getCommandName());\n        } catch (Throwable throwable) {\n                //can't find command\n        }\n        if (command == null) {\n            throw new NoSuchCommandException(commandContext.getCommandName());\n        }\n\n        // check permission when configs allow anonymous access\n        if (commandContext.isAllowAnonymousAccess()) {\n            PermissionChecker permissionChecker = DefaultAnonymousAccessPermissionChecker.INSTANCE;\n            try {\n                permissionChecker = frameworkModel.getExtensionLoader(PermissionChecker.class).getExtension(QosConstants.QOS_PERMISSION_CHECKER);\n            } catch (Throwable throwable) {\n                //can't find valid custom permissionChecker\n            }\n\n            final Cmd cmd = command.getClass().getAnnotation(Cmd.class);\n            final PermissionLevel cmdRequiredPermissionLevel = cmd.requiredPermissionLevel();\n\n            if (!permissionChecker.access(commandContext, cmdRequiredPermissionLevel)) {\n                throw new PermissionDenyException(commandContext.getCommandName());\n            }\n        }\n\n        return command.execute(commandContext, commandContext.getArgs());\n    }\n"
     test_src = "    @Test\n    void testExecute2() throws Exception {\n        DefaultCommandExecutor executor = new DefaultCommandExecutor(FrameworkModel.defaultModel());\n        String result = executor.execute(CommandContextFactory.newInstance(\"greeting\", new String[]{\"dubbo\"}, false));\n        assertThat(result, equalTo(\"greeting dubbo\"));\n    }\n"
