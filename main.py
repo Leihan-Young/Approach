@@ -117,11 +117,14 @@ def extract_test_signature(test):
 def fix_test_src(focal_src, focal_tgt, test_src):
     test_signature = extract_test_signature(test_src)
     input_text = fix_prompt.replace(FOCAL_SRC, focal_src).replace(FOCAL_TGT, focal_tgt).replace(TEST_SRC, test_src).replace(TEST_SIGNATURE, test_signature)
-    input_text = format(input_text, '}')
+    input_text = format(input_text, '\n}')
     input_ids = tokenizer(input_text, return_tensors='pt').input_ids.to(device)
     generated_ids = model.generate(input_ids, max_new_tokens=256)
+    print(f"input_text={input_text}")
     test_fix = tokenizer.decode(generated_ids[0], skip_special_tokens=True)[len(input_text):]
-    test_fix = post_process(test_fix, '}')
+    print(f"test_fix_gen={test_fix}")
+    test_fix = post_process(test_fix, '\n}')
+    print(f"test_fix={test_fix}")
     return test_fix
 
 def enhance_test_src(focal_src, focal_tgt, test_src):
@@ -130,8 +133,11 @@ def enhance_test_src(focal_src, focal_tgt, test_src):
     input_text = format(test_prefix, test_suffix)
     input_ids = tokenizer(input_text, return_tensors='pt').input_ids.to(device)
     generated_ids = model.generate(input_ids, max_new_tokens=256)
+    print(f"input_text={input_text}")
     test_enhance = tokenizer.decode(generated_ids[0], skip_special_tokens=True)[len(input_text):]
+    print(f"test_enhance_gen={test_enhance}")
     test_enhance = post_process(test_enhance, test_suffix)
+    print(f"test_enhance={test_enhance}")
     return test_enhance
 
 def align_test(test):
@@ -146,17 +152,17 @@ def align_test(test):
 def main(focal_src, focal_tgt, test_src):
     test_src = align_test(test_src)
     test_fix = fix_test_src(focal_src, focal_tgt, test_src)
-    print(f"""
-          test_fix=
-          {test_fix}
-          ---------------------------------------------
-          """)
+    # print(f"""
+    #       test_fix=
+    #       {test_fix}
+    #       ---------------------------------------------
+    #       """)
     test_enhance = enhance_test_src(focal_src, focal_tgt, test_fix)
-    print(f"""
-          test_enhance=
-          {test_enhance}
-          ---------------------------------------------
-          """)
+    # print(f"""
+    #       test_enhance=
+    #       {test_enhance}
+    #       ---------------------------------------------
+    #       """)
     return test_enhance
     
 if __name__ == "__main__":
