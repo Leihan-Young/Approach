@@ -108,6 +108,7 @@ def post_process(prefix, test, suffix):
         test_lines[end] = test_lines[end][:-1]
     while count > 0:
         test_lines[end] += '}'
+        count -= 1
     test_lines[end] += '\n'
     end = end + 1
     if end < len(test_lines):
