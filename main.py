@@ -13,7 +13,7 @@ FOCAL_TGT = "$FOCAL_TGT$"
 TEST_SRC = "$TEST_SRC$"
 TEST_PREFIX = "$TEST_PREFIX$"
 
-fix_prompt = f"""// The old version of the production code
+fix_prompt = """// The old version of the production code
 {FOCAL_SRC}
 // The old version of the test code that tests the old version of the production code
 {TEST_SRC}
@@ -56,13 +56,67 @@ def split_test(test):
 def format(prefix, suffix):
   return prefix + "<mask_1>" + suffix + "<|endoftext|>" + "<sep>" + "<mask_1>"
 
+def post_process(test, suffix):
+    if test.find('<eom>') == -1:
+        test = test.lstrip() + suffix
+    else:
+        test = test[:test.find('<eom>')].lstrip()
+    test_lines = test.split('\n')
+    def countSymbol(line, symbol):
+        count = 0
+        string_flag = False
+        char_flag = False
+        for i in range(len(line)):
+            if line[i] == '/' and i + 1 < len(line) and line[i+1] == '/' and not string_flag and not char_flag:
+                break
+            if line[i] == '"' and (i == 0 or line[i - 1] != '\\'):
+                string_flag = not string_flag
+            if line[i] == '\'' and (i == 0 or line[i - 1] != '\\') and not string_flag:
+                char_flag = not char_flag
+            if string_flag or char_flag:
+                continue
+            if line[i] == symbol:
+                count = count + 1
+        return count
+    end = 1
+    comment = False
+    count = countSymbol(test_lines[0], '{')
+    end = end - 1
+    while end + 1 < len(test_lines):
+        end = end + 1
+        if comment and test_lines[end].find('*/') != -1:
+            comment = False
+            continue
+        if test_lines[end].find('/*') != -1 and test_lines[end].find('*/') == -1 and test_lines[end][:test_lines[end].find('/*')].find('"') == -1 and test_lines[end][:test_lines[end].find('/*')].find('}') == -1:
+            comment = True
+            continue
+        left_count = countSymbol(test_lines[end], '{')
+        right_count = countSymbol(test_lines[end], '}')
+        diff = left_count - right_count
+        if count == None and diff != 0:
+            count = diff
+        elif count != None:
+            count = count + diff
+        if count != None and count <= 0:
+            break
+    if test_lines[end].find('/*') != -1 and test_lines[end][:test_lines[end].find('/*')].find('"') == -1 and test_lines[end][:test_lines[end].find('/*')].find('}') == -1:
+        test_lines[end] = test_lines[end][:test_lines[end].find('}') + 1]
+    end = end + 1
+    if end >= len(test_lines):
+        raise Exception("Error:Unexpected error in post_process()")
+    test_lines = test_lines[:end]
+    if test_lines[-1].lstrip().startswith('}'):
+        test_lines[0] = test_lines[-1][:test_lines[-1].find('}')] + test_lines[0]
+    post_test = align_test("\n".join(test_lines))
+    return post_test
+
 def fix_test_src(focal_src, focal_tgt, test_src):
     input_text = fix_prompt.replace(FOCAL_SRC, focal_src).replace(FOCAL_TGT, focal_tgt).replace(TEST_SRC, test_src)
     input_text = format(input_text, '}')
     input_ids = tokenizer(input_text, return_tensors='pt').input_ids.to(device)
     generated_ids = model.generate(input_ids, max_new_tokens=256)
     test_fix = tokenizer.decode(generated_ids[0], skip_special_tokens=True)[len(input_text):]
-    test_fix += '}'
+    test_fix = post_process(test_fix, '}')
     return test_fix
 
 def enhance_test_src(focal_src, focal_tgt, test_src):
@@ -72,7 +126,7 @@ def enhance_test_src(focal_src, focal_tgt, test_src):
     input_ids = tokenizer(input_text, return_tensors='pt').input_ids.to(device)
     generated_ids = model.generate(input_ids, max_new_tokens=256)
     test_enhance = tokenizer.decode(generated_ids[0], skip_special_tokens=True)[len(input_text):]
-    test_enhance += test_suffix
+    test_enhance = post_process(test_enhance, test_suffix)
     return test_enhance
 
 def align_test(test):
