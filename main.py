@@ -129,7 +129,8 @@ def fix_test_src(focal_src, focal_tgt, test_src):
     input_ids = tokenizer(input_text, return_tensors='pt').input_ids.to(device)
     generated_ids = model.generate(input_ids, max_new_tokens=256)
     print(f"input_text={input_text}")
-    test_fix = tokenizer.decode(generated_ids[0], skip_special_tokens=True)[len(input_text):]
+    test_fix = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+    test_fix = test_fix[test_fix.rfind('<sep><mask_1>')+len('<sep><mask_1>'):]
     print(f"test_fix_gen={test_fix}")
     test_fix = post_process(test_signature, test_fix, '\n}')
     print(f"test_fix={test_fix}")
@@ -142,7 +143,8 @@ def enhance_test_src(focal_src, focal_tgt, test_src):
     input_ids = tokenizer(input_text, return_tensors='pt').input_ids.to(device)
     generated_ids = model.generate(input_ids, max_new_tokens=256)
     print(f"input_text={input_text}")
-    test_enhance = tokenizer.decode(generated_ids[0], skip_special_tokens=True)[len(input_text):]
+    test_enhance = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+    test_enhance = test_enhance[test_enhance.rfind('<sep><mask_1>')+len('<sep><mask_1>'):]
     print(f"test_enhance_gen={test_enhance}")
     test_enhance = post_process(test_prefix, test_enhance, test_suffix)
     print(f"test_enhance={test_enhance}")
