@@ -4,17 +4,20 @@ import torch
 import javalang
 import re
 import copy
+import traceback
 import subprocess as sp
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from accelerate import infer_auto_device_map, dispatch_model
 from accelerate.utils import get_balanced_memory
 
-cov_cli_path = "/workspace/GHRB_test_co-evolution"
-repos_path = "/workspace/GHRB_test_co-evolution/collected/raw_repos"
-model_path = "/workspace/DeepSeekCoder/deepseek-coder-6.7b-instruct"
+cov_cli_path = "/data/zhiquanyang/Co-evolution/Benchmark"
+repos_path = "/data/zhiquanyang/Co-evolution/Benchmark/repo_mirrors"
+model_path = "/nasdata/Model/deepseek-coder-6.7b-instruct"
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 model = AutoModelForCausalLM.from_pretrained(model_path, device_map="auto", torch_dtype=torch.bfloat16)
+
+conversation_length = 3
 
 FOCAL_SRC = "$FOCAL_SRC$"
 FOCAL_TGT = "$FOCAL_TGT$"
@@ -24,6 +27,7 @@ TEST_FIX = "$TEST_FIX$"
 TEST_PREFIX = "$TEST_PREFIX$"
 TEST_SIGNATURE = "$TEST_SIGNATURE$"
 TEST_INCOMPLETE = "$TEST_INCOMPLETE$"
+ENHANCE_RESPONSE = "$ENHANCE_RESPONSE$"
 EOT = "<|EOT|>"
 
 identify_prompt = f"""You are an AI programming assistant, utilizing the DeepSeek Coder model, developed by DeepSeek Company, and you only answer questions related to computer science. For politically sensitive questions, security and privacy issues, and other non-computer science questions, you will refuse to answer.
@@ -90,6 +94,58 @@ Notice that not all methods invoked in test code is changed.
 enhance_prompt = f"""You are an AI programming assistant, utilizing the DeepSeek Coder model, developed by DeepSeek Company, and you only answer questions related to computer science. For politically sensitive questions, security and privacy issues, and other non-computer science questions, you will refuse to answer.
 ### Instruction:
 The existing test code can not cover all the production code.
+I will provide you the production code with comments showing the coverage and existing test code.
+You should consider how to cover the uncovered lines and branches.
+You can only write more statements in the test code provided.
+Another test case is not allowed.
+### Response:
+Sure.
+{EOT}
+### Instruction:
+The production code.
+```java
+{FOCAL_TGT_COV}
+```
+The corresponding test code
+```java
+{TEST_FIX}
+```
+Let's think step by step before writing test code.
+### Response:
+"""
+
+enhance_generate_prompt = f"""You are an AI programming assistant, utilizing the DeepSeek Coder model, developed by DeepSeek Company, and you only answer questions related to computer science. For politically sensitive questions, security and privacy issues, and other non-computer science questions, you will refuse to answer.
+### Instruction:
+The existing test code can not cover all the production code.
+I will provide you the production code with comments showing the coverage and existing test code.
+You should consider how to cover the uncovered lines and branches.
+You can only write more statements in the test code provided.
+Another test case is not allowed.
+### Response:
+Sure.
+{EOT}
+### Instruction:
+The production code.
+```java
+{FOCAL_TGT_COV}
+```
+The corresponding test code
+```java
+{TEST_FIX}
+```
+Let's think step by step before writing test code.
+### Response:
+{ENHANCE_RESPONSE}
+{EOT}
+### Instruction:
+Now let's write a test case to cover the uncovered lines and branches.
+### Response:
+{TEST_INCOMPLETE}
+"""
+
+enhance_prompt_backup = f"""You are an AI programming assistant, utilizing the DeepSeek Coder model, developed by DeepSeek Company, and you only answer questions related to computer science. For politically sensitive questions, security and privacy issues, and other non-computer science questions, you will refuse to answer.
+### Instruction:
+The existing test code can not cover all the production code.
 I will provide you the production code with comments showing the coverage.
 You should write more test code to cover the uncovered lines and branches.
 ### Response:
@@ -121,23 +177,33 @@ def extract_test_incomplete(test):
     ind = test.rfind('}')
     return test[:ind]
 
-def evaluate_cov(tests, pid, focal_path, focal_code_):
+def check_focal_equal(src_lines, focal_cov, idx):
+    for i in range(min(len(src_lines), 10)):
+        if src_lines[i] not in focal_cov[idx+i]:
+            return False
+    return True
+    
+def full_cov_count(cov):
+    cov = '\n'.join(cov)
+    return cov.count('// Covered')
+
+def evaluate_cov(tests, pid, tid, focal_path, focal_code_):
     focal_code = copy.deepcopy(focal_code_)
     cov_res = []
     if not os.path.exists('./tmp'):
         os.makedirs('./tmp')
     if not os.path.exists('./output'):
         os.makedirs('./output')
-    command = f"python cli.py clean -w {os.path.join(repos_path, pid)}"
-    run = sp.run(command, stdout=sp.PIPE, stderr=sp.PIPE, cwd=cov_cli_path, shell=True)
-    print(run.stdout.decode())
+    # command = f"python cli.py clean -w {os.path.join(repos_path, pid, f'{tid}t')}"
+    # run = sp.run(command, stdout=sp.PIPE, stderr=sp.PIPE, cwd=cov_cli_path, shell=True)
+    # print(run.stdout.decode())
     for test in tests:
         with open('./tmp/input.java', 'w', encoding='utf-8') as f:
             f.write(test)
-        command = f"python cli.py coverage -w {os.path.join(repos_path, pid)} -o {os.path.abspath('./output')} -i {os.path.abspath('./tmp/input.java')}"
+        command = f"python cli.py coverage -w {os.path.join(repos_path, pid, f'{tid}t')} -o {os.path.abspath('./output')} -i {os.path.abspath('./tmp/input.java')}"
         run = sp.run(command, stdout=sp.PIPE, stderr=sp.PIPE, cwd=cov_cli_path, shell=True)
         print(run.stdout.decode())
-        if "BUILD FAILURE" in run.stdout.decode():
+        if "BUILD FAILURE" in run.stdout.decode() or "Fail to parse" in run.stdout.decode():
             cov_res.append(None)
             continue
         cov = []
@@ -147,7 +213,7 @@ def evaluate_cov(tests, pid, focal_path, focal_code_):
                 cov_html_lines = f.readlines()
             src_lines = focal_code[idx1].split('\n')
             for idx2, line in enumerate(cov_html_lines):
-                if src_lines[0] in line and len(cov_html_lines) > idx2+len(src_lines)-1 and src_lines[len(src_lines)-1] in cov_html_lines[idx2+len(src_lines)-1]:
+                if len(cov_html_lines) > idx2+len(src_lines)-1 and check_focal_equal(src_lines, cov_html_lines, idx2):
                     cov.append(cov_html_lines[idx2:idx2+len(src_lines)])
                     break
         cov_res.append(cov)
@@ -268,11 +334,9 @@ def fix_test(focal_src, focal_tgt, test_src):
     test_signature = extract_test_signature(test_src)
     input_text = fix_prompt.replace(FOCAL_SRC, focal_src).replace(FOCAL_TGT, focal_tgt).replace(TEST_SRC, test_src).replace(TEST_SIGNATURE, test_signature)
     inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
-    if inputs.input_ids.shape[1] > 7500:
-        raise Exception("No enough memory for inference")
     test_fix = []
     with torch.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=1024, do_sample=True, top_k=50, top_p=0.9, num_return_sequences=5, eos_token_id=tokenizer.eos_token_id)
+        outputs = model.generate(**inputs, max_new_tokens=1024, do_sample=True, top_k=50, top_p=0.9, num_return_sequences=10, eos_token_id=tokenizer.eos_token_id)
     for output in outputs:
         text_gen = test_signature + '\n' + tokenizer.decode(output, skip_special_tokens=True)[len(input_text) - len(EOT):]
         test = extract_test_method(text_gen)
@@ -280,7 +344,33 @@ def fix_test(focal_src, focal_tgt, test_src):
             test_fix.append(test)
     return test_fix
 
-def enhance_test(focal_tgt, test_fix):
+def enhance_test(focal_tgt_cov, test_fix):
+    test_enhance = []
+    focal_tgt_cov = '\n'.join(focal_tgt_cov)
+    if not ("Not Covered" in focal_tgt_cov or "Partially Covered" in focal_tgt_cov):
+        print("all_covered")
+        test_enhance = test_fix
+        return "all_covered"
+    input_text = enhance_prompt.replace(FOCAL_TGT_COV, focal_tgt_cov).replace(TEST_FIX, test_fix)
+    inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
+    with torch.no_grad():
+        outputs = model.generate(**inputs, max_new_tokens=1024, do_sample=True, top_k=50, top_p=0.9, num_return_sequences=1, eos_token_id=tokenizer.eos_token_id)
+    cot_response = tokenizer.decode(outputs[0], skip_special_tokens=True)[len(input_text) - len(EOT):]
+    print(cot_response)
+
+    test_incomplete = extract_test_incomplete(test_fix)
+    input_text = enhance_generate_prompt.replace(FOCAL_TGT_COV, focal_tgt_cov).replace(TEST_FIX, test_fix).replace(ENHANCE_RESPONSE, cot_response).replace(TEST_INCOMPLETE, test_incomplete)
+    inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
+    with torch.no_grad():
+        outputs = model.generate(**inputs, max_new_tokens=1024, do_sample=True, top_k=50, top_p=0.9, num_return_sequences=5, eos_token_id=tokenizer.eos_token_id)
+    for output in outputs:
+        text_gen = test_incomplete + tokenizer.decode(output, skip_special_tokens=True)[len(input_text) - 2 * len(EOT):]
+        test = extract_test_method(text_gen)
+        if test is not None:
+            test_enhance.append(test)
+    return test_enhance
+
+def enhance_test_backup(focal_tgt, test_fix):
     test_enhance = []
     for idx, focal_code_cov in enumerate(focal_tgt):
         if focal_code_cov is None:
@@ -293,8 +383,6 @@ def enhance_test(focal_tgt, test_fix):
         test_incomplete = extract_test_incomplete(test_fix[idx])
         input_text = enhance_prompt.replace(FOCAL_TGT_COV, focal_tgt_cov).replace(TEST_FIX, test_fix[idx]).replace(TEST_INCOMPLETE, test_incomplete)
         inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
-        if inputs.input_ids.shape[1] > 7500:
-            raise Exception("No enough memory for inference")
         with torch.no_grad():
             outputs = model.generate(**inputs, max_new_tokens=1024, do_sample=False, top_k=50, num_return_sequences=1, eos_token_id=tokenizer.eos_token_id)
         text_gen = test_incomplete + tokenizer.decode(outputs[0], skip_special_tokens=True)[len(input_text) - len(EOT):]
@@ -306,17 +394,18 @@ def enhance_test(focal_tgt, test_fix):
 def identify_obsolete(focal_src, focal_tgt, test_src):
     input_text = identify_prompt.replace(FOCAL_SRC, focal_src).replace(FOCAL_TGT, focal_tgt).replace(TEST_SRC, test_src)
     inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
-    if inputs.input_ids.shape[1] > 7500:
-        raise Exception("No enough memory for inference")
     test_fix = []
     with torch.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=256, do_sample=False, top_k=50, num_return_sequences=1, eos_token_id=tokenizer.eos_token_id)
-    text_gen = tokenizer.decode(outputs[0], skip_special_tokens=True)[len(input_text) - len(EOT):]
-    obsolete = True
-    print(text_gen)
-    if text_gen.startswith('No'):
-        obsolete = False
-    return obsolete
+        outputs = model.generate(**inputs, max_new_tokens=256, do_sample=True, top_k=50, top_p=0.9, num_return_sequences=5, eos_token_id=tokenizer.eos_token_id)
+    yes_count = 0
+    no_count = 0
+    for output in outputs:
+        text_gen = tokenizer.decode(output, skip_special_tokens=True)[len(input_text) - len(EOT):]
+        if text_gen.startswith('No'):
+            no_count += 1
+        else:
+            yes_count += 1
+    return yes_count > no_count
 
 def align_code(code):
     code_lines = code.split('\n')
@@ -372,7 +461,7 @@ def write_json(output_file, obj):
         json.dump(obj, f, indent=2)
 
 if __name__ == "__main__":
-    data_path = '/workspace/GHRB_test_co-evolution/verified'
+    data_path = '/data/zhiquanyang/Co-evolution/Benchmark/verified'
     output_dir = './data'
     files = [name for name in os.listdir(data_path)
                 if name.endswith('.json')]
@@ -381,7 +470,6 @@ if __name__ == "__main__":
             continue
         print(file)
         pid = file.split('_')[-1].replace('.json', '')
-        work_dir = f'/workspace/GHRB_test_co-evolution/collected/raw_repos/{pid}'
         sample_dict = read_json(os.path.join(data_path, file))
         for key, value in tqdm(sample_dict.items()):
             test_id = value['test_id']
@@ -393,15 +481,17 @@ if __name__ == "__main__":
             focal_src_aligned = '\n'.join([align_code(x) for x in focal_src])
             focal_tgt_aligned = '\n'.join([align_code(x) for x in focal_tgt])
             test_src_aligned = align_code(test_src)
+            work_dir = f'/data/zhiquanyang/Co-evolution/Benchmark/repo_mirrors/{pid}/{test_id}t'
 
             try:
                 print(f"{pid}:{test_id}")
                 identified = identify_obsolete(focal_src_aligned, focal_tgt_aligned, test_src_aligned)
                 value['identify_result_deepseek-coder'] = identified
+                print(f"Identify Result={identified}")
                 if identified:
                     test_fix = fix_test(focal_src_aligned, focal_tgt_aligned, test_src_aligned)
                     checkout(pid, f'{test_id}t', work_dir, commit_tgt)
-                    focal_tgt_cov = evaluate_cov(test_fix, pid, focal_path_src, focal_tgt)
+                    focal_tgt_cov = evaluate_cov(test_fix, pid, test_id, focal_path_src, focal_tgt)
                     tmp_test_fix = []
                     tmp_focal_tgt_cov = []
                     for idx, focal_tgt_cov_item in enumerate(focal_tgt_cov):
@@ -416,27 +506,40 @@ if __name__ == "__main__":
                         test_fix = ['// Fail to generate test fix. This is original test code.\n' + test_src_aligned]
                         test_enhance = ['// Fail to generate test enhance. This is original test code.\n' + test_src_aligned]
                     else:
-                        test_enhance = enhance_test(focal_tgt_cov, test_fix)
-                        focal_tgt_cov_enhance = evaluate_cov(test_enhance, pid, focal_path_src, focal_tgt)
-                        tmp_test_enhance = []
-                        tmp_focal_tgt_cov_enhance = []
-                        for idx, focal_tgt_cov_enhance_item in enumerate(focal_tgt_cov_enhance):
-                            if focal_tgt_cov_enhance_item is None:
+                        test_fix, focal_tgt_cov = rank_by_cov(test_fix, focal_tgt_cov)
+                        tmp_focal_tgt_covs = focal_tgt_cov
+                        tmp_tests = test_fix
+                        for i in range(conversation_length):
+                            test_enhance = enhance_test(tmp_focal_tgt_covs[0], tmp_tests[0])
+                            if test_enhance == "all_covered":
+                                break
+                            focal_tgt_cov_enhance = evaluate_cov(test_enhance, pid, test_id, focal_path_src, focal_tgt)
+                            tmp_test_enhance = []
+                            tmp_focal_tgt_cov_enhance = []
+                            for idx, focal_tgt_cov_enhance_item in enumerate(focal_tgt_cov_enhance):
+                                if focal_tgt_cov_enhance_item is None:
+                                    continue
+                                tmp_test_enhance.append(test_enhance[idx])
+                                tmp_focal_tgt_cov_enhance.append(focal_tgt_cov_enhance_item)
+                            test_enhance = tmp_test_enhance
+                            focal_tgt_cov_enhance = tmp_focal_tgt_cov_enhance
+                            if len(test_enhance) == 0:
                                 continue
-                            tmp_test_enhance.append(test_enhance[idx])
-                            tmp_focal_tgt_cov_enhance.append(focal_tgt_cov_enhance_item)
-                        test_enhance = tmp_test_enhance
-                        focal_tgt_cov_enhance = tmp_focal_tgt_cov_enhance
-                        test_fix, _ = rank_by_cov(test_fix, focal_tgt_cov)
+                            test_enhance, focal_tgt_cov_enhance = rank_by_cov(test_enhance, focal_tgt_cov_enhance)
+                            print(f"generate_cov_count={full_cov_count(focal_tgt_cov_enhance[0])}")
+                            print(f"current_cov_count={full_cov_count(tmp_focal_tgt_covs[0])}\n")
+                            if full_cov_count(focal_tgt_cov_enhance[0]) > full_cov_count(tmp_focal_tgt_covs[0]):
+                                tmp_tests = test_enhance
+                                tmp_focal_tgt_covs = focal_tgt_cov_enhance
+                        test_enhance = tmp_tests
+                        focal_tgt_cov_enhance = tmp_focal_tgt_covs
                         print(f"len(test_enhance)={len(test_enhance)}")
                         if len(test_enhance) == 0:
                             test_enhance = ['// Fail to generate test enhance. This is original test code.\n' + test_src_aligned]
-                        else:
-                            test_enhance, _ = rank_by_cov(test_enhance, focal_tgt_cov_enhance)
                     value['test_fix_deepseek-coder'] = test_fix
                     value['test_enhance_deepseek-coder'] = test_enhance
             except Exception as e:
-                print(repr(e))
+                traceback.print_exc()
                 test_fix = ['// Fail to generate test fix. This is original test code.\n' + test_src_aligned]
                 test_enhance = ['// Fail to generate test enhance. This is original test code.\n' + test_src_aligned]
                 value['test_fix_deepseek-coder'] = test_fix
@@ -446,26 +549,66 @@ if __name__ == "__main__":
         write_json(os.path.join(output_dir, file), sample_dict)
 
 
-    # pid = "shardingsphere"
-    # test_id = '1'
-    # commit_tgt = '871cedbd12c4639a845929b37bf64c9195187fd1'
-    # work_dir = f'/workspace/GHRB_test_co-evolution/collected/raw_repos/{pid}'
-    # focal_path_src = ["proxy/bootstrap/src/main/java/org/apache/shardingsphere/proxy/database/DatabaseServerInfo.java#DatabaseServerInfo",
-    #   "proxy/bootstrap/src/main/java/org/apache/shardingsphere/proxy/database/DatabaseServerInfo.java#toString"]
-    # focal_src = ["    public DatabaseServerInfo(final DataSource dataSource) {\n        try (Connection connection = dataSource.getConnection()) {\n            DatabaseMetaData databaseMetaData = connection.getMetaData();\n            databaseName = databaseMetaData.getDatabaseProductName();\n            databaseVersion = databaseMetaData.getDatabaseProductVersion();\n        } catch (final SQLException ex) {\n            throw new DatabaseServerLoadingServerException(ex);\n        }\n    }\n",
-    #   "    @Override\n    public String toString() {\n        return String.format(\"Database name is `%s`, version is `%s`\", databaseName, databaseVersion);\n    }\n"]
-    # focal_tgt = ["    public DatabaseServerInfo(final DataSource dataSource) {\n        try (Connection connection = dataSource.getConnection()) {\n            DatabaseMetaData databaseMetaData = connection.getMetaData();\n            databaseType = databaseMetaData.getDatabaseProductName();\n            databaseVersion = databaseMetaData.getDatabaseProductVersion();\n        } catch (final SQLException ex) {\n            throw new DatabaseServerLoadingServerException(ex);\n        }\n    }\n",
-    #   "    @Override\n    public String toString() {\n        return String.format(\"Database type is `%s`, version is `%s`\", databaseType, databaseVersion);\n    }\n"]
-    # test_src = "    @Test\n    void assertToString() throws SQLException {\n        DatabaseMetaData databaseMetaData = mock(DatabaseMetaData.class);\n        when(databaseMetaData.getDatabaseProductName()).thenReturn(\"fixtureDB\");\n        when(databaseMetaData.getDatabaseProductVersion()).thenReturn(\"1.0.0\");\n        when(dataSource.getConnection().getMetaData()).thenReturn(databaseMetaData);\n        assertThat(new DatabaseServerInfo(dataSource).toString(), is(\"Database name is `fixtureDB`, version is `1.0.0`\"));\n    }\n"
+    # pid = "nacos"
+    # test_id = '9'
+    # commit_tgt = "5994e3739461db0d6052f6e816f309e59c0d0c4b"
+    # focal_path_src = ["client/src/main/java/com/alibaba/nacos/client/config/filter/impl/ConfigEncryptionFilter.java#doFilter"]
+    # focal_src = ["    @Override\n    public void doFilter(IConfigRequest request, IConfigResponse response, IConfigFilterChain filterChain)\n            throws NacosException {\n        if (Objects.nonNull(request) && request instanceof ConfigRequest && Objects.isNull(response)) {\n            \n            // Publish configuration, encrypt\n            ConfigRequest configRequest = (ConfigRequest) request;\n            String dataId = configRequest.getDataId();\n            String content = configRequest.getContent();\n            \n            Pair<String, String> pair = EncryptionHandler.encryptHandler(dataId, content);\n            String secretKey = pair.getFirst();\n            String encryptContent = pair.getSecond();\n            \n            ((ConfigRequest) request).setContent(encryptContent);\n            ((ConfigRequest) request).setEncryptedDataKey(secretKey);\n        }\n        if (Objects.nonNull(response) && response instanceof ConfigResponse && Objects.isNull(request)) {\n            \n            // Get configuration, decrypt\n            ConfigResponse configResponse = (ConfigResponse) response;\n            \n            String dataId = configResponse.getDataId();\n            String encryptedDataKey = configResponse.getEncryptedDataKey();\n            String content = configResponse.getContent();\n            \n            Pair<String, String> pair = EncryptionHandler.decryptHandler(dataId, encryptedDataKey, content);\n            String decryptContent = pair.getSecond();\n            ((ConfigResponse) response).setContent(decryptContent);\n        }\n        filterChain.doFilter(request, response);\n    }\n"]
+    # focal_tgt = ["    @Override\n    public void doFilter(IConfigRequest request, IConfigResponse response, IConfigFilterChain filterChain)\n            throws NacosException {\n        if (Objects.nonNull(request) && request instanceof ConfigRequest && Objects.isNull(response)) {\n            \n            // Publish configuration, encrypt\n            ConfigRequest configRequest = (ConfigRequest) request;\n            String dataId = configRequest.getDataId();\n            String content = configRequest.getContent();\n            \n            Pair<String, String> pair = EncryptionHandler.encryptHandler(dataId, content);\n            String secretKey = pair.getFirst();\n            String encryptContent = pair.getSecond();\n            if (!StringUtils.isBlank(encryptContent) && !encryptContent.equals(content)) {\n                ((ConfigRequest) request).setContent(encryptContent);\n            }\n            if (!StringUtils.isBlank(secretKey) && !secretKey.equals(((ConfigRequest) request).getEncryptedDataKey())) {\n                ((ConfigRequest) request).setEncryptedDataKey(secretKey);\n            } else if (StringUtils.isBlank(((ConfigRequest) request).getEncryptedDataKey()) && StringUtils.isBlank(secretKey)) {\n                ((ConfigRequest) request).setEncryptedDataKey(\"\");\n            }\n        }\n        if (Objects.nonNull(response) && response instanceof ConfigResponse && Objects.isNull(request)) {\n            \n            // Get configuration, decrypt\n            ConfigResponse configResponse = (ConfigResponse) response;\n            \n            String dataId = configResponse.getDataId();\n            String encryptedDataKey = configResponse.getEncryptedDataKey();\n            String content = configResponse.getContent();\n            \n            Pair<String, String> pair = EncryptionHandler.decryptHandler(dataId, encryptedDataKey, content);\n            String secretKey = pair.getFirst();\n            String decryptContent = pair.getSecond();\n            if (!StringUtils.isBlank(decryptContent) && !decryptContent.equals(content)) {\n                ((ConfigResponse) response).setContent(decryptContent);\n            }\n            if (!StringUtils.isBlank(secretKey) && !secretKey.equals(((ConfigResponse) response).getEncryptedDataKey())) {\n                ((ConfigResponse) response).setEncryptedDataKey(secretKey);\n            } else if (StringUtils.isBlank(((ConfigResponse) response).getEncryptedDataKey()) && StringUtils.isBlank(secretKey)) {\n                ((ConfigResponse) response).setEncryptedDataKey(\"\");\n            }\n        }\n        filterChain.doFilter(request, response);\n    }\n"]
+    # test_src = "    @Test\n    public void testDoFilter() throws NacosException {\n        configEncryptionFilter.doFilter(configRequest, null, iConfigFilterChain);\n        \n        Mockito.verify(configRequest).getDataId();\n        Mockito.verify(configRequest).getContent();\n        \n        configEncryptionFilter.doFilter(null, configResponse, iConfigFilterChain);\n        \n        Mockito.verify(configResponse).getDataId();\n        Mockito.verify(configResponse).getContent();\n        Mockito.verify(configResponse).getEncryptedDataKey();\n    }\n"
     # focal_src_aligned = '\n'.join([align_code(x) for x in focal_src])
     # focal_tgt_aligned = '\n'.join([align_code(x) for x in focal_tgt])
     # test_src_aligned = align_code(test_src)
-    # if identify_obsolete(focal_src_aligned, focal_tgt_aligned, test_src_aligned):
-    #     test_fix = fix_test(focal_src_aligned, focal_tgt_aligned, test_src_aligned)
-    #     print(test_fix)
-    #     checkout(pid, f'{test_id}t', work_dir, commit_tgt)
-    #     focal_tgt_cov = evaluate_cov(test_fix, pid, focal_path_src, focal_tgt)
-    #     test_enhance = enhance_test(focal_tgt_cov, test_fix)
-    #     for idx, x in enumerate(test_enhance):
-    #         print(f"================================\n{idx}:")
-    #         print(x)
+    # work_dir = f'/data/zhiquanyang/Co-evolution/Benchmark/repo_mirrors/{pid}/{test_id}t'
+
+    # try:
+    #     print(f"{pid}:{test_id}")
+    #     identified = identify_obsolete(focal_src_aligned, focal_tgt_aligned, test_src_aligned)
+    #     if identified:
+    #         test_fix = fix_test(focal_src_aligned, focal_tgt_aligned, test_src_aligned)
+    #         checkout(pid, f'{test_id}t', work_dir, commit_tgt)
+    #         focal_tgt_cov = evaluate_cov(test_fix, pid, test_id, focal_path_src, focal_tgt)
+    #         tmp_test_fix = []
+    #         tmp_focal_tgt_cov = []
+    #         for idx, focal_tgt_cov_item in enumerate(focal_tgt_cov):
+    #             if focal_tgt_cov_item is None:
+    #                 continue
+    #             tmp_test_fix.append(test_fix[idx])
+    #             tmp_focal_tgt_cov.append(focal_tgt_cov_item)
+    #         test_fix = tmp_test_fix
+    #         focal_tgt_cov = tmp_focal_tgt_cov
+    #         print(f"len(test_fix)={len(test_fix)}")
+    #         if len(test_fix) == 0:
+    #             test_fix = ['// Fail to generate test fix. This is original test code.\n' + test_src_aligned]
+    #             test_enhance = ['// Fail to generate test enhance. This is original test code.\n' + test_src_aligned]
+    #         else:
+    #             test_fix, _ = rank_by_cov(test_fix, focal_tgt_cov)
+    #             tmp_focal_tgt_covs = focal_tgt_cov
+    #             tmp_tests = test_fix
+    #             for i in range(conversation_length):
+    #                 test_enhance = enhance_test(tmp_focal_tgt_covs[0], tmp_tests[0])
+    #                 focal_tgt_cov_enhance = evaluate_cov(test_enhance, pid, test_id, focal_path_src, focal_tgt)
+    #                 tmp_test_enhance = []
+    #                 tmp_focal_tgt_cov_enhance = []
+    #                 for idx, focal_tgt_cov_enhance_item in enumerate(focal_tgt_cov_enhance):
+    #                     if focal_tgt_cov_enhance_item is None:
+    #                         continue
+    #                     tmp_test_enhance.append(test_enhance[idx])
+    #                     tmp_focal_tgt_cov_enhance.append(focal_tgt_cov_enhance_item)
+    #                 test_enhance = tmp_test_enhance
+    #                 focal_tgt_cov_enhance = tmp_focal_tgt_cov_enhance
+    #                 if len(test_enhance) == 0:
+    #                     continue
+    #                 test_enhance = rank_by_cov(test_enhance, focal_tgt_cov_enhance)
+    #                 if full_cov_count(focal_tgt_cov_enhance[0]) > full_cov_count(tmp_focal_tgt_covs[0]):
+    #                     tmp_tests = test_enhance
+    #                     tmp_focal_tgt_covs = focal_tgt_cov_enhance
+    #                     print("""===============
+    #                           =================
+    #                           ===================
+    #                           =================
+    #                           ============""")
+    #             test_enhance = tmp_tests
+    #             print(test_enhance)
+    # except Exception as e:
+    #     traceback.print_exc()
