@@ -19,6 +19,7 @@ model = AutoModelForCausalLM.from_pretrained(model_path, device_map="auto", torc
 
 conversation_length = 3
 
+CONTEXT = "$CONTEXT$"
 FOCAL_SRC = "$FOCAL_SRC$"
 FOCAL_TGT = "$FOCAL_TGT$"
 FOCAL_TGT_COV = "$FOCAL_TGT_COV$"
@@ -86,6 +87,8 @@ Notice that not all methods invoked in test code is changed.
 ```java
 // The updated version of the production code
 {FOCAL_TGT}
+// Some context in the production code
+{CONTEXT}
 // The updated version of the test code that co-evolves with the production code
 ### Response:
 {TEST_SIGNATURE}
@@ -165,8 +168,178 @@ The corresponding test code
 """
 
 
+def get_context_with_specified_body(work_dir, prod_path, require_body_list):
+    result_context = ""
+    files = []
+    exclude_methods = []
+    for p in prod_path:
+        file = p.split('#')[0]
+        if file not in files:
+            files.append(file)
+        method = p.split('#')[1]
+        if method not in exclude_methods:
+            exclude_methods.append(method)
+    for file in files:
+        with open(os.path.join(work_dir, file), 'r') as f:
+            java_code = f.read()
+        java_code_lines = [l+'\n' for l in java_code.split("\n", )]
+        root = javalang.parse.parse(java_code)
+        class_body = root.children[2][0].body
+        fields = []
+        constructors = []
+        methods = []
+        for node in class_body:
+            if isinstance(node, javalang.tree.FieldDeclaration):
+                fields.append(node)
+            elif isinstance(node, javalang.tree.ConstructorDeclaration):
+                constructors.append(node)
+            elif isinstance(node, javalang.tree.MethodDeclaration):
+                methods.append(node)
+
+        context = ""
+        for node in fields:
+            ind = node.position.line - 1
+            field_context = ""
+            while ind < len(java_code_lines):
+                line = java_code_lines[ind]
+                # remove comments
+                if line.find('//') != -1:
+                    line = line[:line.find('//')] + '\n'
+                field_context += line
+                if field_context.rstrip().endswith(';'):
+                    break
+            context += field_context
+        for node in constructors:
+            ind = node.position.line - 1
+            constructor_context = get_java_code_method(java_code_lines, ind)
+            context += constructor_context
+        for node in methods:
+            ind = node.position.line - 1
+            try:
+                method_context = get_java_code_method(java_code_lines, ind, node.name in require_body_list)
+            except:
+                method_context = get_java_code_method(java_code_lines, ind)
+            context += method_context
+        result_context += context
+    # remove leading spaces
+    result_context = result_context.rstrip().split('\n')
+    leading_spaces = len(result_context[0])-len(result_context[0].lstrip())
+    for line in result_context:
+        leading = len(line) - len(line.lstrip())
+        if leading < leading_spaces:
+            leading_spaces = leading
+    result_context = '\n'.join([l[leading_spaces:] for l in result_context])
+    return result_context
+
+def get_java_code_method(java_code, start, include_body=False):
+    if include_body:
+        # 找方法结尾
+        end = start
+        comment = False
+        count = None
+        end = end - 1
+        while end + 1 < len(java_code) or count == None:
+            end = end + 1
+            if comment and java_code[end].find('*/') != -1:
+                comment = False
+                continue
+            if java_code[end].find('/*') != -1 and java_code[end].find('*/') == -1 and java_code[end][:java_code[end].find('/*')].find('"') == -1 and java_code[end][:java_code[end].find('/*')].find('}') == -1:
+                comment = True
+                continue
+            if count_symbol(java_code[end], ';') != 0 and count == None:
+                break
+            left_count = count_symbol(java_code[end], '{')
+            right_count = count_symbol(java_code[end], '}')
+            diff = left_count - right_count
+            if count == None and diff != 0:
+                count = diff
+            elif count != None:
+                count = count + diff
+            if count != None and count <= 0:
+                break
+        if java_code[end].find('/*') != -1 and java_code[end][:java_code[end].find('/*')].find('"') == -1 and java_code[end][:java_code[end].find('/*')].find('}') == -1:
+            java_code[end] = java_code[end][:java_code[end].find('}') + 1]
+        end = end + 1
+        if end >= len(java_code):
+            raise Exception("Error:Unexpected error in getJavaCodeMethod()")
+        # 回退末尾不需要的内容
+        if java_code[end].find('public ') != -1 or java_code[end].find('private ') != -1:
+            end = end - 1
+            while end > start and java_code[end].find('@') != -1:
+                end = end - 1
+            if java_code[end].find('*/') != -1:
+                while end > start and java_code[end].find('/*') == -1:
+                    end = end - 1
+        return ''.join(java_code[start:end])
+    
+    else:
+        res_line = java_code[start]
+        if res_line.find('//') != -1:
+            res_line = res_line[:res_line.find('//')] + '\n'
+        while count_symbol(res_line, '{') == 0:
+            i = start + 1
+            res_line += java_code[i]
+            if res_line.find('//') != -1:
+                res_line = res_line[:res_line.find('//')] + '\n'
+        res_line = res_line[:res_line.find('{')].rstrip() + ';\n'
+        return res_line
+
+# return True if success
+def gen_evosuite_tests(work_dir, output_dir):
+    command = f"python cli.py evosuite -w {work_dir} -o {os.path.abspath(output_dir)} -c"
+    run = sp.run(command, stdout=sp.PIPE, stderr=sp.PIPE, cwd=cov_cli_path, shell=True)
+    stdout = run.stdout.decode()
+    if "Succeed to generate Evosuite tests" in stdout:
+        return True
+    return False
+
+def extract_related_methods(test_file_path, target_methods):
+    related_prod_methods = []
+    related_test_methods = []
+    test_methods = []
+    for path, dirs, files in os.walk(test_file_path):
+        for file in files:
+            if file.endswith("ESTest.java"):
+                test_methods += extract_all_test_methods_in_file(os.path.join(path, file))
+    
+    test_methods = ["public void test" + l[l.find('()'):] for l in test_methods]
+
+    for test_method in test_methods:
+        for target_method in target_methods:
+            if target_method in test_method:
+                root = javalang.parse.parse(f"public class TempClass {{{test_method}}}")
+                qualifiers = set()
+                for path, node in root.filter(javalang.tree.MethodInvocation):
+                    if node.member == target_method:
+                        qualifiers.add(node.qualifier)
+                if len(qualifiers) == 0:
+                    continue
+                if test_method not in related_test_methods:
+                    related_test_methods.append(test_method)
+                for path, node in root.filter(javalang.tree.MethodInvocation):
+                    if node.qualifier in qualifiers and node.member != target_method and node.member not in related_prod_methods:
+                        related_prod_methods.append(node.member)
+    return related_prod_methods, related_test_methods
+
+
+def extract_all_test_methods_in_file(test_file_path):
+    methods = []
+    with open(test_file_path, 'r') as file:
+        test_code = file.readlines()
+    in_method = False
+    method_start_flag = 0
+    method_end = "  }"
+    for i, line in enumerate(test_code):
+        if not in_method and line.lstrip().startswith("@Test"):
+            in_method = True
+            method_start_flag = i+1
+        if in_method and line.startswith(method_end):
+            in_method = False
+            methods.append(''.join(test_code[method_start_flag:i+1]))
+    return methods
+
 def extract_test_signature(test):
-    ind = test.find('{')+1
+    ind = test.find('{')
     signature = test[:ind]
     if test[ind+1:].lstrip().startswith('\n'):
         suf = test[ind+1:]
@@ -274,7 +447,7 @@ def checkout(pid, tid, repo_path, commit):
         f.write(f"tid={tid}")
         f.close()
 
-def countSymbol(line, symbol):
+def count_symbol(line, symbol):
     count = 0
     string_flag = False
     char_flag = False
@@ -306,8 +479,8 @@ def extract_test_method(s):
         if lines[end].find('/*') != -1 and lines[end].find('*/') == -1 and lines[end][:lines[end].find('/*')].find('"') == -1 and lines[end][:lines[end].find('/*')].find('}') == -1:
             comment = True
             continue
-        left_count = countSymbol(lines[end], '{')
-        right_count = countSymbol(lines[end], '}')
+        left_count = count_symbol(lines[end], '{')
+        right_count = count_symbol(lines[end], '}')
         diff = left_count - right_count
         if count == None and diff != 0:
             count = diff
@@ -330,9 +503,9 @@ def extract_test_method(s):
     test = align_code("\n".join(lines))
     return test
 
-def fix_test(focal_src, focal_tgt, test_src):
+def fix_test(context, focal_src, focal_tgt, test_src):
     test_signature = extract_test_signature(test_src)
-    input_text = fix_prompt.replace(FOCAL_SRC, focal_src).replace(FOCAL_TGT, focal_tgt).replace(TEST_SRC, test_src).replace(TEST_SIGNATURE, test_signature)
+    input_text = fix_prompt.replace(FOCAL_SRC, focal_src).replace(FOCAL_TGT, focal_tgt).replace(TEST_SRC, test_src).replace(TEST_SIGNATURE, test_signature).replace(CONTEXT, context)
     inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
     test_fix = []
     with torch.no_grad():
@@ -365,27 +538,6 @@ def enhance_test(focal_tgt_cov, test_fix):
         outputs = model.generate(**inputs, max_new_tokens=1024, do_sample=True, top_k=50, top_p=0.9, num_return_sequences=5, eos_token_id=tokenizer.eos_token_id)
     for output in outputs:
         text_gen = test_incomplete + tokenizer.decode(output, skip_special_tokens=True)[len(input_text) - 2 * len(EOT):]
-        test = extract_test_method(text_gen)
-        if test is not None:
-            test_enhance.append(test)
-    return test_enhance
-
-def enhance_test_backup(focal_tgt, test_fix):
-    test_enhance = []
-    for idx, focal_code_cov in enumerate(focal_tgt):
-        if focal_code_cov is None:
-            test_enhance.append(None)
-            continue
-        focal_tgt_cov = '\n'.join(focal_code_cov)
-        if not ("Not Covered" in focal_tgt_cov or "Partially Covered" in focal_tgt_cov):
-            test_enhance.append(test_fix[idx])
-            continue
-        test_incomplete = extract_test_incomplete(test_fix[idx])
-        input_text = enhance_prompt.replace(FOCAL_TGT_COV, focal_tgt_cov).replace(TEST_FIX, test_fix[idx]).replace(TEST_INCOMPLETE, test_incomplete)
-        inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
-        with torch.no_grad():
-            outputs = model.generate(**inputs, max_new_tokens=1024, do_sample=False, top_k=50, num_return_sequences=1, eos_token_id=tokenizer.eos_token_id)
-        text_gen = test_incomplete + tokenizer.decode(outputs[0], skip_special_tokens=True)[len(input_text) - len(EOT):]
         test = extract_test_method(text_gen)
         if test is not None:
             test_enhance.append(test)
@@ -461,6 +613,9 @@ def write_json(output_file, obj):
         json.dump(obj, f, indent=2)
 
 if __name__ == "__main__":
+    # target_methods = [p.split('#')[1] for p in ["client/src/main/java/com/alibaba/nacos/client/naming/remote/gprc/redo/NamingGrpcRedoService.java#instanceDeregister"]]
+    # related_prod, related_tests = extract_related_methods("evosuite_output", target_methods)
+    # context = get_context_with_specified_body(os.path.join(repos_path, 'nacos', '1t'), ["client/src/main/java/com/alibaba/nacos/client/naming/remote/gprc/redo/NamingGrpcRedoService.java#instanceDeregister"], related_prod)
     data_path = '/data/zhiquanyang/Co-evolution/Benchmark/verified'
     output_dir = './data'
     files = [name for name in os.listdir(data_path)
@@ -489,7 +644,15 @@ if __name__ == "__main__":
                 value['identify_result_deepseek-coder'] = identified
                 print(f"Identify Result={identified}")
                 if identified:
-                    test_fix = fix_test(focal_src_aligned, focal_tgt_aligned, test_src_aligned)
+                    evosuite_output_path = f"./evosuite_output/{pid}/{test_id}"
+                    evosuite_gen_success = gen_evosuite_tests(os.path.join(repos_path, pid, f'{test_id}t'), evosuite_output_path)
+                    if evosuite_gen_success:
+                        target_methods = [p.split('#')[1] for p in focal_path_src]
+                        related_prod, related_tests = extract_related_methods(evosuite_output_path, target_methods)
+                        context = get_context_with_specified_body(work_dir, focal_path_src, related_prod)
+                    else:
+                        context = get_context_with_specified_body(work_dir, focal_path_src, [])
+                    test_fix = fix_test(context, focal_src_aligned, focal_tgt_aligned, test_src_aligned)
                     checkout(pid, f'{test_id}t', work_dir, commit_tgt)
                     focal_tgt_cov = evaluate_cov(test_fix, pid, test_id, focal_path_src, focal_tgt)
                     tmp_test_fix = []
@@ -504,46 +667,46 @@ if __name__ == "__main__":
                     print(f"len(test_fix)={len(test_fix)}")
                     if len(test_fix) == 0:
                         test_fix = ['// Fail to generate test fix. This is original test code.\n' + test_src_aligned]
-                        test_enhance = ['// Fail to generate test enhance. This is original test code.\n' + test_src_aligned]
-                    else:
-                        test_fix, focal_tgt_cov = rank_by_cov(test_fix, focal_tgt_cov)
-                        tmp_focal_tgt_covs = focal_tgt_cov
-                        tmp_tests = test_fix
-                        for i in range(conversation_length):
-                            test_enhance = enhance_test(tmp_focal_tgt_covs[0], tmp_tests[0])
-                            if test_enhance == "all_covered":
-                                break
-                            focal_tgt_cov_enhance = evaluate_cov(test_enhance, pid, test_id, focal_path_src, focal_tgt)
-                            tmp_test_enhance = []
-                            tmp_focal_tgt_cov_enhance = []
-                            for idx, focal_tgt_cov_enhance_item in enumerate(focal_tgt_cov_enhance):
-                                if focal_tgt_cov_enhance_item is None:
-                                    continue
-                                tmp_test_enhance.append(test_enhance[idx])
-                                tmp_focal_tgt_cov_enhance.append(focal_tgt_cov_enhance_item)
-                            test_enhance = tmp_test_enhance
-                            focal_tgt_cov_enhance = tmp_focal_tgt_cov_enhance
-                            if len(test_enhance) == 0:
-                                continue
-                            test_enhance, focal_tgt_cov_enhance = rank_by_cov(test_enhance, focal_tgt_cov_enhance)
-                            print(f"generate_cov_count={full_cov_count(focal_tgt_cov_enhance[0])}")
-                            print(f"current_cov_count={full_cov_count(tmp_focal_tgt_covs[0])}\n")
-                            if full_cov_count(focal_tgt_cov_enhance[0]) > full_cov_count(tmp_focal_tgt_covs[0]):
-                                tmp_tests = test_enhance
-                                tmp_focal_tgt_covs = focal_tgt_cov_enhance
-                        test_enhance = tmp_tests
-                        focal_tgt_cov_enhance = tmp_focal_tgt_covs
-                        print(f"len(test_enhance)={len(test_enhance)}")
-                        if len(test_enhance) == 0:
-                            test_enhance = ['// Fail to generate test enhance. This is original test code.\n' + test_src_aligned]
+                        # test_enhance = ['// Fail to generate test enhance. This is original test code.\n' + test_src_aligned]
+                    # else:
+                    #     test_fix, focal_tgt_cov = rank_by_cov(test_fix, focal_tgt_cov)
+                    #     tmp_focal_tgt_covs = focal_tgt_cov
+                    #     tmp_tests = test_fix
+                    #     for i in range(conversation_length):
+                    #         test_enhance = enhance_test(tmp_focal_tgt_covs[0], tmp_tests[0])
+                    #         if test_enhance == "all_covered":
+                    #             break
+                    #         focal_tgt_cov_enhance = evaluate_cov(test_enhance, pid, test_id, focal_path_src, focal_tgt)
+                    #         tmp_test_enhance = []
+                    #         tmp_focal_tgt_cov_enhance = []
+                    #         for idx, focal_tgt_cov_enhance_item in enumerate(focal_tgt_cov_enhance):
+                    #             if focal_tgt_cov_enhance_item is None:
+                    #                 continue
+                    #             tmp_test_enhance.append(test_enhance[idx])
+                    #             tmp_focal_tgt_cov_enhance.append(focal_tgt_cov_enhance_item)
+                    #         test_enhance = tmp_test_enhance
+                    #         focal_tgt_cov_enhance = tmp_focal_tgt_cov_enhance
+                    #         if len(test_enhance) == 0:
+                    #             continue
+                    #         test_enhance, focal_tgt_cov_enhance = rank_by_cov(test_enhance, focal_tgt_cov_enhance)
+                    #         print(f"generate_cov_count={full_cov_count(focal_tgt_cov_enhance[0])}")
+                    #         print(f"current_cov_count={full_cov_count(tmp_focal_tgt_covs[0])}\n")
+                    #         if full_cov_count(focal_tgt_cov_enhance[0]) > full_cov_count(tmp_focal_tgt_covs[0]):
+                    #             tmp_tests = test_enhance
+                    #             tmp_focal_tgt_covs = focal_tgt_cov_enhance
+                    #     test_enhance = tmp_tests
+                    #     focal_tgt_cov_enhance = tmp_focal_tgt_covs
+                    #     print(f"len(test_enhance)={len(test_enhance)}")
+                    #     if len(test_enhance) == 0:
+                    #         test_enhance = ['// Fail to generate test enhance. This is original test code.\n' + test_src_aligned]
                     value['test_fix_deepseek-coder'] = test_fix
-                    value['test_enhance_deepseek-coder'] = test_enhance
+                    # value['test_enhance_deepseek-coder'] = test_enhance
             except Exception as e:
                 traceback.print_exc()
                 test_fix = ['// Fail to generate test fix. This is original test code.\n' + test_src_aligned]
-                test_enhance = ['// Fail to generate test enhance. This is original test code.\n' + test_src_aligned]
+                # test_enhance = ['// Fail to generate test enhance. This is original test code.\n' + test_src_aligned]
                 value['test_fix_deepseek-coder'] = test_fix
-                value['test_enhance_deepseek-coder'] = test_enhance
+                # value['test_enhance_deepseek-coder'] = test_enhance
                 value['exception_while_gen_deepseek-coder'] = repr(e)
 
         write_json(os.path.join(output_dir, file), sample_dict)
