@@ -546,18 +546,12 @@ def enhance_test(focal_tgt_cov, test_fix):
 def identify_obsolete(focal_src, focal_tgt, test_src):
     input_text = identify_prompt.replace(FOCAL_SRC, focal_src).replace(FOCAL_TGT, focal_tgt).replace(TEST_SRC, test_src)
     inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
-    test_fix = []
     with torch.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=256, do_sample=True, top_k=50, top_p=0.9, num_return_sequences=5, eos_token_id=tokenizer.eos_token_id)
-    yes_count = 0
-    no_count = 0
-    for output in outputs:
-        text_gen = tokenizer.decode(output, skip_special_tokens=True)[len(input_text) - len(EOT):]
-        if text_gen.startswith('No'):
-            no_count += 1
-        else:
-            yes_count += 1
-    return yes_count > no_count
+        outputs = model.generate(**inputs, max_new_tokens=256, do_sample=False, top_k=50, num_return_sequences=1, eos_token_id=tokenizer.eos_token_id)
+    text_gen = tokenizer.decode(outputs[0], skip_special_tokens=True)[len(input_text) - len(EOT):]
+    if text_gen.startswith('No'):
+        return False
+    return True
 
 def align_code(code):
     code_lines = code.split('\n')
