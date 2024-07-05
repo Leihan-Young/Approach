@@ -85,10 +85,10 @@ The old version of production code and test code.
 Since the production code has changed, the old version of test code needs to be maintained.
 Notice that not all methods invoked in test code is changed.
 ```java
-// The updated version of the production code
-{FOCAL_TGT}
 // Some context in the production code
 {CONTEXT}
+// The updated version of the production code
+{FOCAL_TGT}
 // The updated version of the test code that co-evolves with the production code
 ### Response:
 {TEST_SIGNATURE}
@@ -208,6 +208,7 @@ def get_context_with_specified_body(work_dir, prod_path, require_body_list):
                 field_context += line
                 if field_context.rstrip().endswith(';'):
                     break
+                ind += 1
             context += field_context
         for node in constructors:
             ind = node.position.line - 1
@@ -273,11 +274,12 @@ def get_java_code_method(java_code, start, include_body=False):
         return ''.join(java_code[start:end])
     
     else:
+        i = start
         res_line = java_code[start]
         if res_line.find('//') != -1:
             res_line = res_line[:res_line.find('//')] + '\n'
         while count_symbol(res_line, '{') == 0:
-            i = start + 1
+            i = i + 1
             res_line += java_code[i]
             if res_line.find('//') != -1:
                 res_line = res_line[:res_line.find('//')] + '\n'
@@ -286,6 +288,7 @@ def get_java_code_method(java_code, start, include_body=False):
 
 # return True if success
 def gen_evosuite_tests(work_dir, output_dir):
+    return False
     command = f"python cli.py evosuite -w {work_dir} -o {os.path.abspath(output_dir)} -c"
     run = sp.run(command, stdout=sp.PIPE, stderr=sp.PIPE, cwd=cov_cli_path, shell=True)
     stdout = run.stdout.decode()
@@ -509,7 +512,7 @@ def fix_test(context, focal_src, focal_tgt, test_src):
     inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
     test_fix = []
     with torch.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=1024, do_sample=True, top_k=50, top_p=0.9, num_return_sequences=10, eos_token_id=tokenizer.eos_token_id)
+        outputs = model.generate(**inputs, max_new_tokens=2048, do_sample=True, top_k=50, top_p=0.9, num_return_sequences=10, eos_token_id=tokenizer.eos_token_id)
     for output in outputs:
         text_gen = test_signature + '\n' + tokenizer.decode(output, skip_special_tokens=True)[len(input_text) - len(EOT):]
         test = extract_test_method(text_gen)
@@ -546,18 +549,12 @@ def enhance_test(focal_tgt_cov, test_fix):
 def identify_obsolete(focal_src, focal_tgt, test_src):
     input_text = identify_prompt.replace(FOCAL_SRC, focal_src).replace(FOCAL_TGT, focal_tgt).replace(TEST_SRC, test_src)
     inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
-    test_fix = []
     with torch.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=256, do_sample=True, top_k=50, top_p=0.9, num_return_sequences=5, eos_token_id=tokenizer.eos_token_id)
-    yes_count = 0
-    no_count = 0
-    for output in outputs:
-        text_gen = tokenizer.decode(output, skip_special_tokens=True)[len(input_text) - len(EOT):]
-        if text_gen.startswith('No'):
-            no_count += 1
-        else:
-            yes_count += 1
-    return yes_count > no_count
+        outputs = model.generate(**inputs, max_new_tokens=256, do_sample=False, top_k=50, num_return_sequences=1, eos_token_id=tokenizer.eos_token_id)
+    text_gen = tokenizer.decode(outputs[0], skip_special_tokens=True)[len(input_text) - len(EOT):]
+    if text_gen.startswith('No'):
+        return False
+    return True
 
 def align_code(code):
     code_lines = code.split('\n')
@@ -664,6 +661,7 @@ if __name__ == "__main__":
                         tmp_focal_tgt_cov.append(focal_tgt_cov_item)
                     test_fix = tmp_test_fix
                     focal_tgt_cov = tmp_focal_tgt_cov
+                    test_fix, focal_tgt_cov = rank_by_cov(test_fix, focal_tgt_cov)
                     print(f"len(test_fix)={len(test_fix)}")
                     if len(test_fix) == 0:
                         test_fix = ['// Fail to generate test fix. This is original test code.\n' + test_src_aligned]
@@ -711,7 +709,8 @@ if __name__ == "__main__":
 
         write_json(os.path.join(output_dir, file), sample_dict)
 
-
+    while True:
+        identify_obsolete(focal_src_aligned, focal_tgt_aligned, test_src_aligned)
     # pid = "nacos"
     # test_id = '9'
     # commit_tgt = "5994e3739461db0d6052f6e816f309e59c0d0c4b"
