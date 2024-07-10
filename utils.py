@@ -358,8 +358,6 @@ def append_call_relationship(data_path, output_path):
         sample_dict = read_json(os.path.join(data_path, file))
         for key, value in tqdm(sample_dict.items()):
             test_id = value['test_id']
-            if test_id != 60:
-                continue
             focal_path_tgt = value['focal_path_tgt']
             focal_tgt = value ['focal_tgt']
             work_dir = f'/data/zhiquanyang/Co-evolution/Benchmark/repo_mirrors/{pid}/{test_id}t'

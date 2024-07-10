@@ -28,7 +28,18 @@
       "    public DatabaseServerInfo(final DataSource dataSource) {\n        try (Connection connection = dataSource.getConnection()) {\n            DatabaseMetaData databaseMetaData = connection.getMetaData();\n            databaseType = databaseMetaData.getDatabaseProductName();\n            databaseVersion = databaseMetaData.getDatabaseProductVersion();\n        } catch (final SQLException ex) {\n            throw new DatabaseServerLoadingServerException(ex);\n        }\n    }\n",
       "    @Override\n    public String toString() {\n        return String.format(\"Database type is `%s`, version is `%s`\", databaseType, databaseVersion);\n    }\n"
     ],
-    "test_id": 1
+    "test_id": 1,
+    "call_codes": [
+      [
+        {
+          "call_path": "/data/zhiquanyang/Co-evolution/Benchmark/repo_mirrors/shardingsphere/1t/proxy/bootstrap/src/main/java/org/apache/shardingsphere/proxy/version/ShardingSphereProxyVersion.java",
+          "call_class": "ShardingSphereProxyVersion",
+          "call_method_code": "    private static void setDatabaseVersion(final ShardingSphereDatabase database) {\n        Optional<DataSource> dataSource = findDataSourceByProtocolType(database.getName(), database.getResourceMetaData(), database.getProtocolType());\n        if (!dataSource.isPresent()) {\n            return;\n        }\n        DatabaseServerInfo databaseServerInfo = new DatabaseServerInfo(dataSource.get());\n        log.info(\"{}, database name is `{}`\", databaseServerInfo, database.getName());\n        DatabaseProtocolServerInfo.setProtocolVersion(database.getName(), databaseServerInfo.getDatabaseVersion());\n    }",
+          "call_total_code": "@NoArgsConstructor(access = AccessLevel.PRIVATE)\n@Slf4j\npublic final class ShardingSphereProxyVersion {\n\n    private static void setDatabaseVersion(final ShardingSphereDatabase database) {\n        Optional<DataSource> dataSource = findDataSourceByProtocolType(database.getName(), database.getResourceMetaData(), database.getProtocolType());\n        new DatabaseServerInfo(dataSource.get());\n    }\n\n}\n\n"
+        }
+      ],
+      []
+    ]
   },
   "2": {
     "commit_src": "83eb124abcda2772433134f0258df7615577d1d6",
@@ -57,7 +68,23 @@
     "focal_tgt": [
       "    public ShardingSphereYamlRepresenter(final DumperOptions dumperOptions) {\n        super(dumperOptions);\n        Map<String, Class<?>> yamlShortcuts = new HashMap<>();\n        ShardingSphereServiceLoader.getServiceInstances(ShardingSphereYamlShortcuts.class).stream().map(ShardingSphereYamlShortcuts::getYamlShortcuts).forEach(yamlShortcuts::putAll);\n        yamlShortcuts.forEach((key, value) -> addClassTag(value, new Tag(key)));\n    }\n"
     ],
-    "test_id": 2
+    "test_id": 2,
+    "call_codes": [
+      [
+        {
+          "call_path": "/data/zhiquanyang/Co-evolution/Benchmark/repo_mirrors/shardingsphere/2t/infra/util/src/main/java/org/apache/shardingsphere/infra/util/yaml/YamlEngine.java",
+          "call_class": "YamlEngine",
+          "call_method_code": "    /**\n     * Marshal YAML.\n     *\n     * @param value object to be marshaled\n     * @return YAML content\n     */\n    public static String marshal(final Object value) {\n        DumperOptions dumperOptions = new DumperOptions();\n        dumperOptions.setLineBreak(DumperOptions.LineBreak.getPlatformLineBreak());\n        if (value instanceof Collection) {\n            return new Yaml(new ShardingSphereYamlRepresenter(dumperOptions)).dumpAs(value, null, DumperOptions.FlowStyle.BLOCK);\n        }\n        return new Yaml(new ShardingSphereYamlRepresenter(dumperOptions)).dumpAsMap(value);\n    }",
+          "call_total_code": "@NoArgsConstructor(access = AccessLevel.PRIVATE)\npublic final class YamlEngine {\n\n    /**\n     * Marshal YAML.\n     *\n     * @param value object to be marshaled\n     * @return YAML content\n     */\n    public static String marshal(final Object value) {\n        DumperOptions dumperOptions = new DumperOptions();\n        new ShardingSphereYamlRepresenter(dumperOptions);\n    }\n\n}\n\n"
+        },
+        {
+          "call_path": "/data/zhiquanyang/Co-evolution/Benchmark/repo_mirrors/shardingsphere/2t/infra/util/src/main/java/org/apache/shardingsphere/infra/util/yaml/YamlEngine.java",
+          "call_class": "YamlEngine",
+          "call_method_code": "    /**\n     * Marshal YAML.\n     *\n     * @param value object to be marshaled\n     * @return YAML content\n     */\n    public static String marshal(final Object value) {\n        DumperOptions dumperOptions = new DumperOptions();\n        dumperOptions.setLineBreak(DumperOptions.LineBreak.getPlatformLineBreak());\n        if (value instanceof Collection) {\n            return new Yaml(new ShardingSphereYamlRepresenter(dumperOptions)).dumpAs(value, null, DumperOptions.FlowStyle.BLOCK);\n        }\n        return new Yaml(new ShardingSphereYamlRepresenter(dumperOptions)).dumpAsMap(value);\n    }",
+          "call_total_code": "@NoArgsConstructor(access = AccessLevel.PRIVATE)\npublic final class YamlEngine {\n\n    /**\n     * Marshal YAML.\n     *\n     * @param value object to be marshaled\n     * @return YAML content\n     */\n    public static String marshal(final Object value) {\n        DumperOptions dumperOptions = new DumperOptions();\n        new ShardingSphereYamlRepresenter(dumperOptions);\n    }\n\n}\n\n"
+        }
+      ]
+    ]
   },
   "3": {
     "commit_src": "83eb124abcda2772433134f0258df7615577d1d6",
@@ -86,7 +113,23 @@
     "focal_tgt": [
       "    public ShardingSphereYamlRepresenter(final DumperOptions dumperOptions) {\n        super(dumperOptions);\n        Map<String, Class<?>> yamlShortcuts = new HashMap<>();\n        ShardingSphereServiceLoader.getServiceInstances(ShardingSphereYamlShortcuts.class).stream().map(ShardingSphereYamlShortcuts::getYamlShortcuts).forEach(yamlShortcuts::putAll);\n        yamlShortcuts.forEach((key, value) -> addClassTag(value, new Tag(key)));\n    }\n"
     ],
-    "test_id": 3
+    "test_id": 3,
+    "call_codes": [
+      [
+        {
+          "call_path": "/data/zhiquanyang/Co-evolution/Benchmark/repo_mirrors/shardingsphere/3t/infra/util/src/main/java/org/apache/shardingsphere/infra/util/yaml/YamlEngine.java",
+          "call_class": "YamlEngine",
+          "call_method_code": "    /**\n     * Marshal YAML.\n     *\n     * @param value object to be marshaled\n     * @return YAML content\n     */\n    public static String marshal(final Object value) {\n        DumperOptions dumperOptions = new DumperOptions();\n        dumperOptions.setLineBreak(DumperOptions.LineBreak.getPlatformLineBreak());\n        if (value instanceof Collection) {\n            return new Yaml(new ShardingSphereYamlRepresenter(dumperOptions)).dumpAs(value, null, DumperOptions.FlowStyle.BLOCK);\n        }\n        return new Yaml(new ShardingSphereYamlRepresenter(dumperOptions)).dumpAsMap(value);\n    }",
+          "call_total_code": "@NoArgsConstructor(access = AccessLevel.PRIVATE)\npublic final class YamlEngine {\n\n    /**\n     * Marshal YAML.\n     *\n     * @param value object to be marshaled\n     * @return YAML content\n     */\n    public static String marshal(final Object value) {\n        DumperOptions dumperOptions = new DumperOptions();\n        new ShardingSphereYamlRepresenter(dumperOptions);\n    }\n\n}\n\n"
+        },
+        {
+          "call_path": "/data/zhiquanyang/Co-evolution/Benchmark/repo_mirrors/shardingsphere/3t/infra/util/src/main/java/org/apache/shardingsphere/infra/util/yaml/YamlEngine.java",
+          "call_class": "YamlEngine",
+          "call_method_code": "    /**\n     * Marshal YAML.\n     *\n     * @param value object to be marshaled\n     * @return YAML content\n     */\n    public static String marshal(final Object value) {\n        DumperOptions dumperOptions = new DumperOptions();\n        dumperOptions.setLineBreak(DumperOptions.LineBreak.getPlatformLineBreak());\n        if (value instanceof Collection) {\n            return new Yaml(new ShardingSphereYamlRepresenter(dumperOptions)).dumpAs(value, null, DumperOptions.FlowStyle.BLOCK);\n        }\n        return new Yaml(new ShardingSphereYamlRepresenter(dumperOptions)).dumpAsMap(value);\n    }",
+          "call_total_code": "@NoArgsConstructor(access = AccessLevel.PRIVATE)\npublic final class YamlEngine {\n\n    /**\n     * Marshal YAML.\n     *\n     * @param value object to be marshaled\n     * @return YAML content\n     */\n    public static String marshal(final Object value) {\n        DumperOptions dumperOptions = new DumperOptions();\n        new ShardingSphereYamlRepresenter(dumperOptions);\n    }\n\n}\n\n"
+        }
+      ]
+    ]
   },
   "4": {
     "commit_src": "f9c5dd6c100c64e92c654e40bc89fbe8cd849669",
@@ -114,7 +157,10 @@
     "focal_tgt": [
       "    @Override\n    public Collection<LocalDataQueryResultRow> getRows(final ShardingSphereMetaData metaData, final ConnectionSession connectionSession, final ShowDistVariablesStatement sqlStatement) {\n        Collection<LocalDataQueryResultRow> result = ConfigurationPropertyKey.getKeyNames().stream()\n                .filter(each -> !ConfigurationPropertyKey.SQL_SHOW.name().equals(each) && !ConfigurationPropertyKey.SQL_SIMPLE.name().equals(each))\n                .map(each -> new LocalDataQueryResultRow(each.toLowerCase(), getStringResult(metaData.getProps().getValue(ConfigurationPropertyKey.valueOf(each))))).collect(Collectors.toList());\n        result.addAll(TemporaryConfigurationPropertyKey.getKeyNames().stream()\n                .map(each -> new LocalDataQueryResultRow(each.toLowerCase(), getStringResult(metaData.getTemporaryProps().getValue(TemporaryConfigurationPropertyKey.valueOf(each)))))\n                .collect(Collectors.toList()));\n        result.add(new LocalDataQueryResultRow(VariableEnum.CACHED_CONNECTIONS.name().toLowerCase(), connectionSession.getDatabaseConnectionManager().getConnectionSize()));\n        addLoggingPropsRows(metaData, result);\n        if (sqlStatement.getLikePattern().isPresent()) {\n            String pattern = SQLUtils.convertLikePatternToRegex(sqlStatement.getLikePattern().get());\n            result = result.stream().filter(each -> Pattern.compile(pattern, Pattern.CASE_INSENSITIVE).matcher((String) each.getCell(1)).matches()).collect(Collectors.toList());\n        }\n        return result.stream().sorted(Comparator.comparing(each -> each.getCell(1).toString())).collect(Collectors.toList());\n    }\n"
     ],
-    "test_id": 4
+    "test_id": 4,
+    "call_codes": [
+      []
+    ]
   },
   "5": {
     "commit_src": "f9c5dd6c100c64e92c654e40bc89fbe8cd849669",
@@ -142,7 +188,10 @@
     "focal_tgt": [
       "    @Override\n    public Collection<LocalDataQueryResultRow> getRows(final ShardingSphereMetaData metaData, final ConnectionSession connectionSession, final ShowDistVariablesStatement sqlStatement) {\n        Collection<LocalDataQueryResultRow> result = ConfigurationPropertyKey.getKeyNames().stream()\n                .filter(each -> !ConfigurationPropertyKey.SQL_SHOW.name().equals(each) && !ConfigurationPropertyKey.SQL_SIMPLE.name().equals(each))\n                .map(each -> new LocalDataQueryResultRow(each.toLowerCase(), getStringResult(metaData.getProps().getValue(ConfigurationPropertyKey.valueOf(each))))).collect(Collectors.toList());\n        result.addAll(TemporaryConfigurationPropertyKey.getKeyNames().stream()\n                .map(each -> new LocalDataQueryResultRow(each.toLowerCase(), getStringResult(metaData.getTemporaryProps().getValue(TemporaryConfigurationPropertyKey.valueOf(each)))))\n                .collect(Collectors.toList()));\n        result.add(new LocalDataQueryResultRow(VariableEnum.CACHED_CONNECTIONS.name().toLowerCase(), connectionSession.getDatabaseConnectionManager().getConnectionSize()));\n        addLoggingPropsRows(metaData, result);\n        if (sqlStatement.getLikePattern().isPresent()) {\n            String pattern = SQLUtils.convertLikePatternToRegex(sqlStatement.getLikePattern().get());\n            result = result.stream().filter(each -> Pattern.compile(pattern, Pattern.CASE_INSENSITIVE).matcher((String) each.getCell(1)).matches()).collect(Collectors.toList());\n        }\n        return result.stream().sorted(Comparator.comparing(each -> each.getCell(1).toString())).collect(Collectors.toList());\n    }\n"
     ],
-    "test_id": 5
+    "test_id": 5,
+    "call_codes": [
+      []
+    ]
   },
   "6": {
     "commit_src": "e9aa53dc4d4eac56bdf758faa8178a920858a62f",
@@ -172,7 +221,10 @@
     "focal_tgt": [
       "    @Override\n    public RouteContext route(final RouteContext routeContext, final BroadcastRule broadcastRule) {\n        for (String each : broadcastRule.getDataSourceNames()) {\n            routeContext.getRouteUnits().add(new RouteUnit(new RouteMapper(each, each), Collections.emptyList()));\n        }\n        return routeContext;\n    }\n"
     ],
-    "test_id": 6
+    "test_id": 6,
+    "call_codes": [
+      []
+    ]
   },
   "7": {
     "commit_src": "e9aa53dc4d4eac56bdf758faa8178a920858a62f",
@@ -202,7 +254,10 @@
     "focal_tgt": [
       "    @Override\n    public RouteContext route(final RouteContext routeContext, final BroadcastRule broadcastRule) {\n        RouteContext result = new RouteContext();\n        for (String each : broadcastRule.getDataSourceNames()) {\n            if (resourceMetaData.getAllInstanceDataSourceNames().contains(each)) {\n                result.getRouteUnits().add(new RouteUnit(new RouteMapper(each, each), Collections.emptyList()));\n            }\n        }\n        return result;\n    }\n"
     ],
-    "test_id": 7
+    "test_id": 7,
+    "call_codes": [
+      []
+    ]
   },
   "8": {
     "commit_src": "7bfc3d49bb718fd014e6fc187243fe52ef7393b7",
@@ -229,7 +284,10 @@
     "focal_tgt": [
       "    @Override\n    public Collection<String> getColumnNames() {\n        return Arrays.asList(\"database_name\", \"table_name\", \"type\", \"name\", \"value\");\n    }\n"
     ],
-    "test_id": 8
+    "test_id": 8,
+    "call_codes": [
+      []
+    ]
   },
   "9": {
     "commit_src": "7bfc3d49bb718fd014e6fc187243fe52ef7393b7",
@@ -256,7 +314,10 @@
     "focal_tgt": [
       "    @Override\n    public Collection<LocalDataQueryResultRow> getRows(final ShardingSphereDatabase database, final ShowTableMetaDataStatement sqlStatement) {\n        String defaultSchema = new DatabaseTypeRegistry(database.getProtocolType()).getDefaultSchemaName(database.getName());\n        ShardingSphereSchema schema = database.getSchema(defaultSchema);\n        return sqlStatement.getTableNames().stream().filter(each -> schema.getAllTableNames().contains(each.toLowerCase()))\n                .map(each -> buildTableRows(database.getName(), schema, each.toLowerCase())).flatMap(Collection::stream).collect(Collectors.toList());\n    }\n"
     ],
-    "test_id": 9
+    "test_id": 9,
+    "call_codes": [
+      []
+    ]
   },
   "10": {
     "commit_src": "a0519cfb74da00fa876b9a2502e0e3faaa7065b9",
@@ -287,7 +348,10 @@
     "focal_tgt": [
       "    @Override\n    public Collection<String> getJdbcUrlPrefixes() {\n        return Arrays.asList(String.format(\"jdbc:%s:\", getType().toLowerCase()), \"jdbc:tc:mariadb:\");\n    }\n"
     ],
-    "test_id": 10
+    "test_id": 10,
+    "call_codes": [
+      []
+    ]
   },
   "11": {
     "commit_src": "f3094a149be90be02904eab41b48facb44336684",
@@ -314,7 +378,10 @@
     "focal_tgt": [
       "    @Override\n    public QueryResultMetaData getQueryResultMetaData() {\n        return new RawQueryResultMetaData(Collections.singletonList(new RawQueryResultColumnMetaData(\"SCHEMATA\", \"SCHEMA_NAME\", \"Database\", Types.VARCHAR, \"VARCHAR\", 255, 0)));\n    }\n"
     ],
-    "test_id": 11
+    "test_id": 11,
+    "call_codes": [
+      []
+    ]
   },
   "12": {
     "commit_src": "e9c1603236c66247abe6b794e31483db36650dd1",
@@ -343,6 +410,9 @@
     "focal_tgt": [
       "    @SneakyThrows(IOException.class)\n    public static Stream<String> read(final ClassLoader classLoader, final String directory) {\n        Enumeration<URL> directoryUrlEnumeration = classLoader.getResources(directory);\n        if (null == directoryUrlEnumeration) {\n            return Stream.empty();\n        }\n        return Collections.list(directoryUrlEnumeration).stream().flatMap(directoryUrl -> {\n            if (JAR_URL_PROTOCOLS.contains(directoryUrl.getProtocol())) {\n                return readDirectoryInJar(directory, directoryUrl);\n            } else {\n                return readDirectoryInFileSystem(directory, directoryUrl);\n            }\n        });\n    }\n"
     ],
-    "test_id": 12
+    "test_id": 12,
+    "call_codes": [
+      []
+    ]
   }
 }
