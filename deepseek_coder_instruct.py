@@ -364,8 +364,8 @@ if __name__ == "__main__":
     # target_methods = [p.split('#')[1] for p in ["client/src/main/java/com/alibaba/nacos/client/naming/remote/gprc/redo/NamingGrpcRedoService.java#instanceDeregister"]]
     # related_prod, related_tests = extract_related_methods("evosuite_output", target_methods)
     # context = get_context_with_specified_body(os.path.join(repos_path, 'nacos', '1t'), ["client/src/main/java/com/alibaba/nacos/client/naming/remote/gprc/redo/NamingGrpcRedoService.java#instanceDeregister"], related_prod)
-    data_path = '/data/zhiquanyang/Co-evolution/Benchmark/verified'
-    output_dir = './data'
+    data_path = '/data/zhiquanyang/Co-evolution/Approach/data_with_call_codes'
+    output_dir = './gen_data_with_call_codes'
     files = [name for name in os.listdir(data_path)
                 if name.endswith('.json')]
     for idx, file in enumerate(files):
