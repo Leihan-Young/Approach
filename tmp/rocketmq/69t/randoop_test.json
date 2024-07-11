@@ -1,0 +1,1 @@
+["    @Test\n    public void test1() throws Throwable {\n        if (debug)\n            System.out.format(\"%n%s%n\", \"RegressionTest0.test1\");\n        java.nio.ByteBuffer byteBuffer0 = null;\n        org.apache.rocketmq.common.UtilAll.cleanBuffer(byteBuffer0);\n    }\n"]

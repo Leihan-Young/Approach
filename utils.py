@@ -346,7 +346,7 @@ def extract_related_methods(test_file_path, target_methods):
                         related_prod_methods.append(node.member)
     return related_prod_methods, related_test_methods
 
-# for __main__
+# following functions are designed for __main__
 def append_call_relationship(data_path, output_path):
     files = [name for name in os.listdir(data_path)
                 if name.endswith('.json')]
@@ -374,8 +374,35 @@ def append_call_relationship(data_path, output_path):
                 value["call_codes"].append(call_codes)
         write_json(os.path.join(output_path, file), sample_dict)
 
+def append_randoop_tests(data_path, output_path):
+    files = [name for name in os.listdir(data_path)
+                if name.endswith('.json')]
+    for idx, file in enumerate(files):
+        if os.path.exists(os.path.join(output_path, file)):
+            continue
+        print(file)
+        pid = file.split('_')[-1].replace('.json', '')
+        sample_dict = read_json(os.path.join(data_path, file))
+        for key, value in tqdm(sample_dict.items()):
+            test_id = value['test_id']
+            focal_path_tgt = value['focal_path_tgt']
+            focal_tgt = value ['focal_tgt']
+            work_dir = f'/data/zhiquanyang/Co-evolution/Benchmark/repo_mirrors/{pid}/{test_id}t'
+            tmp_path = f'/data/zhiquanyang/Co-evolution/Approach/tmp/{pid}/{test_id}t'
+            cli_path = "/data/zhiquanyang/Co-evolution/Benchmark"
+            p = sp.run(f"python cli.py gentest -w {work_dir} -o {tmp_path} -l 20 -c", cwd=cli_path, stdout=sp.PIPE, stderr=sp.PIPE, shell=True)
+            out = p.stdout.decode()
+            if "Successfully generated Randoop Tests." not in out:
+                tests = []
+            else:
+                with open(os.path.join(tmp_path, 'randoop_test.json'), 'r') as f:
+                    tests = json.load(f)
+                    tests = [align_code(test) for test in tests]
+            value["randoop_test"] = tests
+        write_json(os.path.join(output_path, file), sample_dict)
+
 if __name__ == "__main__":
-    append_call_relationship('/data/zhiquanyang/Co-evolution/Benchmark/verified', './data_with_call_codes')
+    append_randoop_tests('/data/zhiquanyang/Co-evolution/Benchmark/verified', './data_with_randoop_tests')
     # setup_res = set_up_language_server_helper('/data/zhiquanyang/Co-evolution/Benchmark/repo_mirrors/nacos/1t/client/src/main')
     # x = method_call_relationship_analysis()
     # call_codes = extract_call_codes(x, 'NamingGrpcRedoService', 'instanceDeregister', "    /**\n     * Instance deregister, mark unregistering status as {@code true}.\n     *\n     * @param serviceName service name\n     * @param groupName   group name\n     */\n    public void instanceDeregister(String serviceName, String groupName) {\n        String key = NamingUtils.getGroupedName(serviceName, groupName);\n        synchronized (registeredInstances) {\n            InstanceRedoData redoData = registeredInstances.get(key);\n            if (null != redoData) {\n                redoData.setUnregistering(true);\n                redoData.setExpectedRegistered(false);\n            }\n        }\n    }\n")
